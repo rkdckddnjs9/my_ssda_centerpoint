@@ -21,7 +21,7 @@ class Detector3DTemplate(nn.Module):
 
         self.module_topology = [
             'vfe', 'backbone_3d', 'map_to_bev_module', 'pfe',
-            'backbone_2d', 'dense_head',  'point_head', 'roi_head'
+            'backbone_2d', 'dense_head',  'point_head', 'bev_extractor_head', 'roi_head'
         ]
 
     @property
@@ -55,7 +55,9 @@ class Detector3DTemplate(nn.Module):
             model_cfg=self.model_cfg.VFE,
             num_point_features=model_info_dict['num_rawpoint_features'],
             point_cloud_range=model_info_dict['point_cloud_range'],
-            voxel_size=model_info_dict['voxel_size']
+            voxel_size=model_info_dict['voxel_size'],
+            grid_size=model_info_dict['grid_size'],
+            #depth_downsample_factor=model_info_dict['depth_downsample_factor']
         )
         model_info_dict['num_point_features'] = vfe_module.get_output_feature_dim()
         model_info_dict['module_list'].append(vfe_module)
@@ -94,7 +96,8 @@ class Detector3DTemplate(nn.Module):
 
         backbone_2d_module = backbones_2d.__all__[self.model_cfg.BACKBONE_2D.NAME](
             model_cfg=self.model_cfg.BACKBONE_2D,
-            input_channels=model_info_dict['num_bev_features']
+            # input_channels=model_info_dict['num_bev_features']
+            input_channels=model_info_dict.get('num_bev_features', None)
         )
         model_info_dict['module_list'].append(backbone_2d_module)
         model_info_dict['num_bev_features'] = backbone_2d_module.num_bev_features
@@ -151,6 +154,33 @@ class Detector3DTemplate(nn.Module):
 
         model_info_dict['module_list'].append(point_head_module)
         return point_head_module, model_info_dict
+
+    def build_bev_extractor_head(self, model_info_dict):
+        if self.model_cfg.get('Second_Stage', None) is None:
+            return None, model_info_dict
+        
+        if self.model_cfg.Second_Stage.get('PC_START', False):
+            pc_start = self.model_cfg.Second_Stage.get('PC_START')
+
+        if self.model_cfg.Second_Stage.get('VOXEL_SIZE', False):
+            voxel_size = self.model_cfg.Second_Stage.get('VOXEL_SIZE')
+
+        if self.model_cfg.Second_Stage.get('OUT_STRIDE', False):
+            out_stride = self.model_cfg.Second_Stage.get('OUT_STRIDE')
+        
+        if self.model_cfg.Second_Stage.get('NUM_POINT', False):
+            num_point = self.model_cfg.Second_Stage.get('NUM_POINT')
+        
+        bev_extractor_module = dense_heads.__all__[self.model_cfg.Second_Stage.NAME](
+            model_cfg=self.model_cfg.Second_Stage,
+            pc_start=pc_start,
+            voxel_size=voxel_size,
+            out_stride=out_stride,
+            num_point=num_point
+        )
+
+        model_info_dict['module_list'].append(bev_extractor_module)
+        return bev_extractor_module, model_info_dict
 
     def build_roi_head(self, model_info_dict):
         if self.model_cfg.get('ROI_HEAD', None) is None:
@@ -216,7 +246,7 @@ class Detector3DTemplate(nn.Module):
             if post_process_cfg.NMS_CONFIG.MULTI_CLASSES_NMS:
                 if not isinstance(cls_preds, list):
                     cls_preds = [cls_preds]
-                    multihead_label_mapping = [torch.arange(1, self.num_class, device=cls_preds[0].device)]
+                    multihead_label_mapping = [torch.arange(0, self.num_class, device=cls_preds[0].device)]
                 else:
                     multihead_label_mapping = batch_dict['multihead_label_mapping']
 
@@ -293,6 +323,136 @@ class Detector3DTemplate(nn.Module):
             }
             if self.training:
                 record_dict['pred_sem_scores'] = final_sem_scores
+            pred_dicts.append(record_dict)
+
+        return pred_dicts, recall_dict
+    
+    def post_processing_for_refine(self, batch_dict, no_recall_dict=True, override_thresh=None, no_nms=False):
+        """
+        Args:
+            batch_dict:
+                batch_size:
+                batch_cls_preds: (B, num_boxes, num_classes | 1) or (N1+N2+..., num_classes | 1)
+                                or [(B, num_boxes, num_class1), (B, num_boxes, num_class2) ...]
+                multihead_label_mapping: [(num_class1), (num_class2), ...]
+                batch_box_preds: (B, num_boxes, 7+C) or (N1+N2+..., 7+C)
+                cls_preds_normalized: indicate whether batch_cls_preds is normalized
+                batch_index: optional (N1+N2+...)
+                has_class_labels: True/False
+                roi_labels: (B, num_rois)  1 .. num_classes
+                batch_pred_labels: (B, num_boxes, 1)
+        Returns:
+
+        """
+        post_process_cfg = self.model_cfg.POST_PROCESSING
+        batch_size = batch_dict['batch_size']
+        recall_dict = {}
+        pred_dicts = []
+        for index in range(batch_size):
+            if batch_dict.get('batch_index', None) is not None:
+                assert batch_dict['batch_box_preds'].shape.__len__() == 2
+                batch_mask = (batch_dict['batch_index'] == index)
+            else:
+                assert batch_dict['batch_box_preds'].shape.__len__() == 3
+                batch_mask = index
+
+            box_preds = batch_dict['batch_box_preds'][batch_mask]
+            src_box_preds = box_preds
+
+            if not isinstance(batch_dict['batch_cls_preds'], list):
+                cls_preds = batch_dict['batch_cls_preds'][batch_mask]
+
+                src_cls_preds = cls_preds
+                assert cls_preds.shape[1] in [1, self.num_class]  # 1 for pvrcnn
+
+                if not batch_dict['cls_preds_normalized']:
+                    cls_preds = torch.sigmoid(cls_preds)
+            else:
+                cls_preds = [x[batch_mask] for x in batch_dict['batch_cls_preds']]
+                src_cls_preds = cls_preds
+                if not batch_dict['cls_preds_normalized']:
+                    cls_preds = [torch.sigmoid(x) for x in cls_preds]
+
+            if post_process_cfg.NMS_CONFIG.MULTI_CLASSES_NMS:
+                if not isinstance(cls_preds, list):
+                    cls_preds = [cls_preds]
+                    multihead_label_mapping = [torch.arange(0, self.num_class, device=cls_preds[0].device)]
+                else:
+                    multihead_label_mapping = batch_dict['multihead_label_mapping']
+
+                cur_start_idx = 0
+                pred_scores, pred_labels, pred_boxes = [], [], []
+                for cur_cls_preds, cur_label_mapping in zip(cls_preds, multihead_label_mapping):
+                    assert cur_cls_preds.shape[1] == len(cur_label_mapping)
+                    cur_box_preds = box_preds[cur_start_idx: cur_start_idx + cur_cls_preds.shape[0]]
+                    cur_pred_scores, cur_pred_labels, cur_pred_boxes = model_nms_utils.multi_classes_nms(
+                        cls_scores=cur_cls_preds, box_preds=cur_box_preds,
+                        nms_config=post_process_cfg.NMS_CONFIG,
+                        score_thresh=post_process_cfg.SCORE_THRESH if override_thresh is None else override_thresh
+                    )
+                    cur_pred_labels = cur_label_mapping[cur_pred_labels]
+                    pred_scores.append(cur_pred_scores)
+                    pred_labels.append(cur_pred_labels)
+                    pred_boxes.append(cur_pred_boxes)
+                    cur_start_idx += cur_cls_preds.shape[0]
+
+                final_scores = torch.cat(pred_scores, dim=0)
+                final_labels = torch.cat(pred_labels, dim=0)
+                final_boxes = torch.cat(pred_boxes, dim=0)
+            else:
+                cls_preds, label_preds = torch.max(cls_preds, dim=-1)
+                if batch_dict.get('has_class_labels', False):
+                    label_key = 'roi_labels' if 'roi_labels' in batch_dict else 'batch_pred_labels'
+                    label_preds = batch_dict[label_key][index]
+                    if self.training:
+                        sem_scores = batch_dict['roi_scores'][index]
+                else:
+                    label_preds = label_preds + 1
+                    if self.training:
+                        sem_scores = batch_dict['roi_scores'][index]
+
+                if no_nms:
+                    selected = torch.arange(len(cls_preds), device=cls_preds.device)
+                    selected_scores = cls_preds
+                else:
+                    if False:
+                        selected, selected_scores = model_nms_utils.class_agnostic_nms(
+                            box_scores=torch.sigmoid(sem_scores), box_preds=box_preds,
+                            nms_config=post_process_cfg.NMS_CONFIG,
+                            score_thresh=post_process_cfg.SCORE_THRESH
+                        )
+                    else:
+                        selected, selected_scores = model_nms_utils.class_agnostic_nms(
+                            box_scores=cls_preds, box_preds=box_preds,
+                            nms_config=post_process_cfg.NMS_CONFIG,
+                            score_thresh=post_process_cfg.SCORE_THRESH
+                        )
+
+                if post_process_cfg.OUTPUT_RAW_SCORE:
+                    max_cls_preds, _ = torch.max(src_cls_preds, dim=-1)
+                    selected_scores = max_cls_preds[selected]
+
+                final_scores = selected_scores
+                final_labels = label_preds[selected]
+                final_boxes = box_preds[selected]
+
+                if self.training:
+                    final_sem_scores = torch.sigmoid(sem_scores[selected])
+
+            if not no_recall_dict:
+                recall_dict = self.generate_recall_record(
+                    box_preds=final_boxes if 'rois' not in batch_dict else src_box_preds,
+                    recall_dict=recall_dict, batch_index=index, data_dict=batch_dict,
+                    thresh_list=post_process_cfg.RECALL_THRESH_LIST
+                )
+
+            record_dict = {
+                'pred_boxes': final_boxes,
+                'pred_scores': final_scores,
+                'pred_labels': final_labels,
+            }
+            # if self.training:
+            #     record_dict['pred_sem_scores'] = final_sem_scores
             pred_dicts.append(record_dict)
 
         return pred_dicts, recall_dict

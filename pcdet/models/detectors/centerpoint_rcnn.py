@@ -9,6 +9,32 @@ class CenterPointRCNN(Detector3DTemplate):
     def forward(self, batch_dict):
         for cur_module in self.module_list:
             batch_dict = cur_module(batch_dict)
+        
+        # if True:
+        #     for batch in range(batch_dict['gt_boxes'].squeeze(0).cpu().detach().numpy().shape[0]):
+        #         gt_=[]
+        #         #for GT box visualization in forward 
+        #         # where, xyz,lwh,heading
+        #         gt_box = batch_dict['gt_boxes'].squeeze(0).cpu().detach().numpy()[batch]
+        #         #gt_box = [[gt_box[0][3], gt_box[0][4], gt_box[0][5]], gt_box[0][6], [gt_box[0][0], gt_box[0][1], gt_box[0][2]]] 
+        #         points = batch_dict['points'].cpu().detach().numpy()
+        #         pc_mask = (points[:, 0] == float(batch))
+        #         points = points[pc_mask]
+        #         np.save("/home/changwon/detection_task/SSOD/kakao/my_ssda_2/vis_in_model/pc/{}.npy".format(batch_dict['frame_id'][batch].item().split(".")[0]), points)
+        #         file = open("/home/changwon/detection_task/SSOD/kakao/my_ssda_2/vis_in_model/box/{}.txt".format(batch_dict['frame_id'][batch].item().split(".")[0]), "w")
+        #         with open("/home/changwon/detection_task/SSOD/kakao/my_ssda_2/vis_in_model/box/{}.txt".format(batch_dict['frame_id'][batch].item().split(".")[0]), "w") as f:
+        #             for num in range(gt_box.shape[0]):
+        #                 f.writelines("{},{},{},{},{},{},{},".format(gt_box[num][3],gt_box[num][4],gt_box[num][5],gt_box[num][6],gt_box[num][0],gt_box[num][1],gt_box[num][2]))
+        #                 gt_.append([gt_box[num][3],gt_box[num][4],gt_box[num][5],gt_box[num][6],gt_box[num][0],gt_box[num][1],gt_box[num][2]])
+                
+        #         pred_box = batch_dict['batch_box_preds'].squeeze(0).cpu().detach().numpy()[batch]
+        #         with open("/home/changwon/detection_task/SSOD/kakao/my_ssda_2/vis_in_model/box/pred_{}.txt".format(batch_dict['frame_id'][batch].item().split(".")[0]), "w") as f:
+        #             for num in range(pred_box.shape[0]):
+        #                 f.writelines("{},{},{},{},{},{},{},".format(pred_box[num][3],pred_box[num][4],pred_box[num][5],pred_box[num][6],pred_box[num][0],pred_box[num][1],pred_box[num][2]))
+        #                 gt_.append([pred_box[num][3],pred_box[num][4],pred_box[num][5],pred_box[num][6],pred_box[num][0],pred_box[num][1],pred_box[num][2]])
+        #         #scene_viz(gt_box, points)
+        #         #token = batch_dict['metadata'][0]['token']
+        #         print(batch_dict['frame_id'][batch].item().split(".")[0])
 
         if self.training:
             loss, tb_dict, disp_dict = self.get_training_loss()
@@ -30,19 +56,3 @@ class CenterPointRCNN(Detector3DTemplate):
 
         loss = loss_rpn + loss_point + loss_rcnn
         return loss, tb_dict, disp_dict
-
-    # def post_processing(self, batch_dict):
-    #     post_process_cfg = self.model_cfg.POST_PROCESSING
-    #     batch_size = batch_dict['batch_size']
-    #     final_pred_dict = batch_dict['final_box_dicts']
-    #     recall_dict = {}
-    #     for index in range(batch_size):
-    #         pred_boxes = final_pred_dict[index]['pred_boxes']
-
-    #         recall_dict = self.generate_recall_record(
-    #             box_preds=pred_boxes,
-    #             recall_dict=recall_dict, batch_index=index, data_dict=batch_dict,
-    #             thresh_list=post_process_cfg.RECALL_THRESH_LIST
-    #         )
-
-    #     return final_pred_dict, recall_dict

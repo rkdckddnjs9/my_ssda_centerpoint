@@ -12,6 +12,7 @@ from .nuscenes.nuscenes_dataset_ssl import NuScenesDatasetSSL
 from .waymo.waymo_dataset import WaymoDataset
 from .omega.omega_dataset import OmegaDataset
 from .omega.omega_dataset_ssl import OmegaDatasetSSL
+from .omega.omega_dataset_centerpoint_ssl import OmegaDataset_CenterPoint_SSL
 
 __all__ = {
     'DatasetTemplate': DatasetTemplate,
@@ -21,7 +22,8 @@ __all__ = {
     'NuScenesDatasetSSL': NuScenesDatasetSSL,
     'WaymoDataset': WaymoDataset,
     'OmegaDataset': OmegaDataset,
-    'OmegaDatasetSSL': OmegaDatasetSSL
+    'OmegaDatasetSSL': OmegaDatasetSSL,
+    'OmegaDataset_CenterPoint_SSL': OmegaDataset_CenterPoint_SSL
 }
 
 

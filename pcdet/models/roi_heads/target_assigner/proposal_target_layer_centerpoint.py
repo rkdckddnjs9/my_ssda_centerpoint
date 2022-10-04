@@ -89,7 +89,8 @@ class ProposalTargetLayer(nn.Module):
         roi_labels = batch_dict['roi_labels']
         # gt_boxes = batch_dict['gt_boxes_and_cls']
         gt_boxes = batch_dict['gt_boxes']
-        roi_features = batch_dict['roi_features']
+        roi_features = torch.cat([feat for feat in batch_dict['roi_features']], dim=-1)
+        #roi_features = batch_dict['spatial_features_2d']
 
         code_size = rois.shape[-1]
         batch_rois = rois.new_zeros(batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE, code_size)

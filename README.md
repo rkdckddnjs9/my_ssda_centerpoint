@@ -109,4 +109,3 @@ Note: Currently only the first element of `sem_thresh` is used (class-agnostic).
 
 This codebase is based on [OpenPCDet](https://github.com/open-mmlab/OpenPCDet) (commit a7cf5368d9cbc3969b4613c9e61ba4dcaf217517).
 
-# my_ssda_centerpoint

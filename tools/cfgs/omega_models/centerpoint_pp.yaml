@@ -5,7 +5,7 @@ DATA_CONFIG:
     _BASE_CONFIG_: tools/cfgs/dataset_configs/omega_dataset.yaml
     DATA_PATH: './data/omega'
     VERSION: 'v0.5-omega-trainval'
-    SHIFT_COOR: [0.0, 0.0, 1.8]
+    SHIFT_COOR: [0.0, 0.0, -1.8]
     MAX_SWEEPS: 1
     PRED_VELOCITY: False
     BALANCED_RESAMPLING: True #False
@@ -208,8 +208,8 @@ MODEL:
 
 
 OPTIMIZATION:
-    BATCH_SIZE_PER_GPU: 4
-    EVAL_BATCH_SIZE_PER_GPU: 4
+    BATCH_SIZE_PER_GPU: 4 #sever : 10
+    EVAL_BATCH_SIZE_PER_GPU: 4 #sever : 10
     NUM_EPOCHS: 20
 
     OPTIMIZER: adam_onecycle

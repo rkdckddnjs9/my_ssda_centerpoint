@@ -232,10 +232,10 @@ class AnchorHeadTemplate(nn.Module):
         return box_loss, tb_dict
 
     def get_loss(self, scalar=True):
-        cls_loss, tb_dict = self.get_cls_layer_loss(scalar=scalar)
-        #cls_loss, tb_dict = self.get_cls_layer_loss() #for center_pp
-        box_loss, tb_dict_box = self.get_box_reg_layer_loss(scalar=scalar)
-        #box_loss, tb_dict_box = self.get_box_reg_layer_loss() #for center_pp
+        #cls_loss, tb_dict = self.get_cls_layer_loss(scalar=scalar)
+        cls_loss, tb_dict = self.get_cls_layer_loss() #for center_pp
+        #box_loss, tb_dict_box = self.get_box_reg_layer_loss(scalar=scalar)
+        box_loss, tb_dict_box = self.get_box_reg_layer_loss() #for center_pp
         tb_dict.update(tb_dict_box)
         rpn_loss = cls_loss + box_loss
 

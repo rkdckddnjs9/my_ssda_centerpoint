@@ -362,7 +362,7 @@ class CenterHeadRCNN(nn.Module):
         #return rpn_loss, tb_dict
         return cls_loss, box_loss, tb_dict
 
-    def get_cls_layer_loss(self):
+    def get_cls_layer_loss(self, scalar=True):
         # NHWC -> NCHW 
         pred_heatmaps = clip_sigmoid(self.forward_ret_dict['cls_preds']).permute(0, 3, 1, 2) 
         gt_heatmaps =  self.forward_ret_dict['heatmaps'][0]
@@ -373,43 +373,18 @@ class CenterHeadRCNN(nn.Module):
                 gt_heatmaps,
                 avg_factor=max(num_pos, 1))
 
+        batch_size = gt_heatmaps.shape[0]
+        avg_factor=max(num_pos, 1)
+        if scalar:
+            cls_loss = cls_loss.sum() / avg_factor
+        else:
+            cls_loss = cls_loss.reshape(batch_size, -1).sum(-1) / avg_factor
+
         cls_loss = cls_loss * self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['cls_weight']
         tb_dict = {
-            'rpn_loss_cls': cls_loss.item()
+            'rpn_loss_cls': cls_loss.item() if scalar else cls_loss
         }
         return cls_loss, tb_dict
-    
-    # def get_cls_layer_loss_ssl(self):
-    #     # NHWC -> NCHW
-    #     # hard coding (batch = 2) 
-    #     pred_heatmaps = clip_sigmoid(self.forward_ret_dict['cls_preds']).permute(0, 3, 1, 2) 
-    #     gt_heatmaps =  self.forward_ret_dict['heatmaps'][0]
-
-    #     pred_heat_0 = pred_heatmaps[0]
-    #     pred_heat_1 = pred_heatmaps[1]
-    #     gt_heat_0 = gt_heatmaps[0]
-    #     gt_heat_1 = gt_heatmaps[1]
-
-    #     num_pos_0 = gt_heat_0.eq(1).float().sum().item()
-    #     num_pos_1 = gt_heat_1.eq(1).float().sum().item()
-    #     #num_pos = gt_heatmaps.eq(1).float().sum().item()
-
-    #     # cls_loss = self.loss_cls(
-    #     #         pred_heatmaps,
-    #     #         gt_heatmaps,
-    #     #         avg_factor=max(num_pos, 1))
-    #     cls_loss_0 = self.loss_cls(pred_heat_0, gt_heat_0, avg_factor=max(num_pos_0, 1))
-    #     cls_loss_1 = self.loss_cls(pred_heat_1, gt_heat_1, avg_factor=max(num_pos_1, 1))
-    #     cls_loss = torch.cat([cls_loss_0.unsqueeze(0), cls_loss_1.unsqueeze(0)], dim=0)
-
-    #     cls_loss = cls_loss * self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['cls_weight']
-    #     # tb_dict = {
-    #     #     'rpn_loss_cls': cls_loss.item()
-    #     # }
-    #     tb_dict = {
-    #         'rpn_loss_cls': cls_loss
-    #     }
-    #     return cls_loss, tb_dict
 
     def get_cls_layer_loss_ssl(self, scalar=True):
         # NHWC -> NCHW
@@ -440,7 +415,7 @@ class CenterHeadRCNN(nn.Module):
         return cls_loss, tb_dict
 
 
-    def get_box_reg_layer_loss(self):
+    def get_box_reg_layer_loss(self, scalar=True):
         # Regression loss for dimension, offset, height, rotation
         target_box, inds, masks = self.forward_ret_dict['anno_boxes'][0], self.forward_ret_dict['inds'][0], self.forward_ret_dict['masks'][0]
 
@@ -459,53 +434,20 @@ class CenterHeadRCNN(nn.Module):
         loc_loss = l1_loss(
             pred, target_box, bbox_weights, avg_factor=(num + 1e-4))
 
+        avg_factor=(num + 1e-4)
+        batch_size = target_box.shape[0]
+        if scalar:
+            loc_loss = loc_loss.sum() / avg_factor
+        else:
+            loc_loss = loc_loss = loc_loss.reshape(batch_size, -1).sum(-1) / avg_factor
+
         loc_loss = loc_loss * self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['loc_weight']
         box_loss = loc_loss
         tb_dict = {
-            'rpn_loss_loc': loc_loss.item()
+            'rpn_loss_loc': loc_loss.item() if scalar else loc_loss
         }
 
         return box_loss, tb_dict
-
-    # def get_box_reg_layer_loss_ssl(self):
-    #     # Regression loss for dimension, offset, height, rotation
-    #     # hard code (batch=2)
-    #     target_box, inds, masks = self.forward_ret_dict['anno_boxes'][0], self.forward_ret_dict['inds'][0], self.forward_ret_dict['masks'][0]
-
-    #     masks_0 = masks[0]
-    #     masks_1 = masks[1]
-    #     num_0 = masks_0.float().sum()
-    #     num_1 = masks_1.float().sum()
-
-    #     ind = inds
-    #     # num = masks.float().sum()
-    #     pred = self.forward_ret_dict['box_preds'] # N x (HxW) x 7 
-    #     pred = pred.view(pred.size(0), -1, pred.size(3))
-    #     pred = self._gather_feat(pred, ind)
-
-    #     mask = masks.unsqueeze(2).expand_as(target_box).float()
-    #     isnotnan = (~torch.isnan(target_box)).float()
-    #     mask *= isnotnan
-
-    #     code_weights = self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['code_weights']
-    #     bbox_weights = mask * mask.new_tensor(code_weights)
-        
-    #     # loc_loss = l1_loss(
-    #     #     pred, target_box, bbox_weights, avg_factor=(num + 1e-4))
-    #     loc_loss_0 = l1_loss(pred[0], target_box[0], bbox_weights, avg_factor=(num_0 + 1e-4))
-    #     loc_loss_1 = l1_loss(pred[1], target_box[1], bbox_weights, avg_factor=(num_1 + 1e-4)) 
-    #     loc_loss = torch.cat([loc_loss_0.unsqueeze(0), loc_loss_1.unsqueeze(0)], dim=0)
-
-    #     loc_loss = loc_loss * self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['loc_weight']
-    #     box_loss = loc_loss
-    #     # tb_dict = {
-    #     #     'rpn_loss_loc': loc_loss.item()
-    #     # }
-    #     tb_dict = {
-    #         'rpn_loss_loc': loc_loss
-    #     }
-
-    #     return box_loss, tb_dict
 
     def get_box_reg_layer_loss_ssl(self, scalar=True):
         # Regression loss for dimension, offset, height, rotation
