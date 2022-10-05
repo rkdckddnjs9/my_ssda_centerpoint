@@ -128,6 +128,7 @@ class RoIHeadPillarNet(RoIHeadTemplate_CenterPoint_PointPillar):
             batch_dict['roi_labels'] = targets_dict['roi_labels']
             batch_dict['roi_features'] = targets_dict['roi_features']
             batch_dict['roi_scores'] = targets_dict['roi_scores']
+            batch_dict['roi_ious'] = targets_dict['gt_iou_of_rois']
 
         # RoI aware pooling
         if self.add_box_param:
